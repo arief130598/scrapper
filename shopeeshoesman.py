@@ -13,8 +13,9 @@ import re
 import unidecode
 import pandas as pd
 
+# Pengaturan Chrome Driver
 chrome_options = Options()
-# chrome_options.add_argument('--headless')
+chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument("user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
                             "Chrome/77.0.3865.90 Safari/537.36")
@@ -35,23 +36,35 @@ chrome_options.add_argument('cookie: _gcl_au=1.1.1823793498.1570803319; _fbp=fb.
                             'SPC_T_ID="zIQZlbAQ/rPOVv5hOdZRkRiAyc/ivMhK8cdMTwuy4NCfkIZICbCMeA4qXe5kDtB4TlK5ncnZ+D6'
                             '+SB6LBkaIE31yD6tFulQEpUEnZeemjHE="')
 
-driver = webdriver.Chrome(executable_path='/usr/bin/chromedriver', chrome_options=chrome_options)
-produkdriver = webdriver.Chrome(executable_path='/usr/bin/chromedriver', chrome_options=chrome_options)
+# Menjalankan driver
+produkdriver = webdriver.Chrome(executable_path='/home/ubuntu/chromedriver', chrome_options=chrome_options)
 
-conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
-                      '=ecommerceta;UID=knight;PWD=Arief-1305')
-cursor = conn.cursor()
-
+# Mengulang sebanyak 100 kali, karna maximum page yang dapat di load di Shopee cuma 100
 for a in range(0, 100):
+    # Membuka halaman page dengan driver
     url = 'https://shopee.co.id/Sepatu-Pria-cat.35?page=' + a.__str__() + '&sortBy=pop'
-    driver.get(url)
+    produkdriver.get(url)
     time.sleep(2)
-    bottomscroll = driver.find_element_by_class_name('shopee-footer-section')
-    actions = ActionChains(driver)
-    actions.move_to_element(bottomscroll).perform()
-    home = BeautifulSoup(driver.page_source, "lxml")
+
+    # Driver harus di scroll terlebih dahulu baru keluar karena Javascript
+    # Jika scroll error refresh halaman
+    status = 1
+    while status == 1:
+        try:
+            bottomscroll = produkdriver.find_element_by_class_name('shopee-footer-section')
+            actions = ActionChains(produkdriver)
+            actions.move_to_element(bottomscroll).perform()
+            status = 0
+        except Exception as e:
+            print(e)
+            produkdriver.get(url)
+            time.sleep(2)
+
+    # Parsing page dengan BeautifulSoup
+    home = BeautifulSoup(produkdriver.page_source, "lxml")
     data = home.findAll('script', type="application/ld+json")
 
+    # Data tiap produk didalam 1 page dimasukan ke dalam list
     listproduk = []
     for x, i in enumerate(data):
         if x == 0 or x == 1:
@@ -59,12 +72,19 @@ for a in range(0, 100):
         else:
             listproduk.append(json.loads(i.text))
 
+    # Membaca setiap produk
     for i in listproduk:
+        # Membuka koneksi database
+        conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
+                              '=ecommerceta;UID=knight;PWD=Arief-1305')
+        cursor = conn.cursor()
+
+        # Mendapatkan nama produk sekaligus preprocessing
         namatemp = i.get('name')
-        namatemp = namatemp.__str__().lower()
-        namatemp = namatemp.translate(str.maketrans("", "", string.punctuation))
-        namatemp = re.sub(' +', ' ', namatemp)
-        namatemp = unidecode.unidecode(namatemp)
+        namatemp = namatemp.__str__().lower()  # Membuat string menjadi huruf pendek
+        namatemp = namatemp.translate(str.maketrans("", "", string.punctuation))  # Menghapus punctuation
+        namatemp = re.sub(' +', ' ', namatemp)  # Spasi yang berlebihan akibat punctuation menjadi 1 saja
+        namatemp = unidecode.unidecode(namatemp)  # Normalisasi huruf unicode
 
         # remove duplicate
         def unique_list(l):
@@ -72,9 +92,9 @@ for a in range(0, 100):
             [ulist.append(v) for v in l if v not in ulist]
             return ulist
 
+        # Menghapus kata yang ada dalam dictionary
         nama = ' '.join(unique_list(namatemp.split()))
-
-        word = pd.read_csv('/home/knight/Documents/shopeeshoesman.csv', encoding='cp1252', names=["words"])
+        word = pd.read_csv('/home/ubuntu/shopeeshoesman.csv', encoding='cp1252', names=["words"])
         word_replace = word['words'].values.tolist()
         wordtest = nama.split()
 
@@ -85,30 +105,41 @@ for a in range(0, 100):
         nama = re.sub(' +', ' ', nama)
         nama = nama.strip()
 
+        # Jika nama hasil preprocess dictionary terhapus semau maka lanjut produk selanjutnya
         if nama.__len__() <= 2:
             continue
 
+        # Mendapatkan harga produk
         hargaarr = i.get('offers').get('price')
         if hargaarr is None:
             hargaarr = i.get('offers').get('lowPrice')
 
         hargaspl = hargaarr.split(sep='.')
         harga = int(hargaspl[0])
-        urlproduk = i.get('url')
 
+        # Membuka halaman produk untuk mendapatkan informasi lebih detail
+        urlproduk = i.get('url')
         produkdriver.get(urlproduk)
         time.sleep(2)
 
         produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
         kategori = produkpage.findAll('a', class_='JFOy4z')
 
-        if kategori.__len__() == 0:
-            continue
+        # Cek jika element kategori di scrape atau tidak, jika tidak coba scrape ulang
+        while kategori.__len__() == 0:
+            produkdriver.get(urlproduk)
+            time.sleep(2)
 
+            produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+            kategori = produkpage.findAll('a', class_='JFOy4z')
+
+        # Jika kategori tidak sesuai lanjut ke produk selanjutnya
         if kategori[1].text != 'Sepatu Pria' or kategori[2].text == 'Aksesoris & Perawatan Sepatu' or kategori[2].text == 'Sandal':
             continue
 
-        toko = produkpage.find('div', class_='_3Lybjn').text
+        toko = produkpage.find('div', class_='_3Lybjn').text  # Mendapatkan nama toko
+
+        # Mendapatkan asal toko
         asaltokoelement = produkpage.findAll('div', class_='kIo6pj')
 
         asaltoko = ''
@@ -117,70 +148,104 @@ for a in range(0, 100):
                 asaltoko = j.div.text
                 asaltoko = asaltoko.split(sep='-')[0][:-1]
 
+        # Mendapatkan data jumlah terjual
         jumlahterjualelement = produkpage.find('div', class_='_22sp0A').text
         jumlahterjualrplc1 = jumlahterjualelement.replace(',', '')
         jumlahterjualrplc2 = jumlahterjualrplc1.replace('RB', '00')
         jumlahterjual = int(jumlahterjualrplc2)
 
+        # Mendapatkan jumlah ulasan element
         jumlahulasanelement = produkpage.findAll('div', class_='_3Oj5_n')
 
+        # Jika jumlah ulasan 0 maka tidak perlu input data ulasan dan langsung ke produk selanjutnya
         if jumlahulasanelement.__len__() == 0:
             jumlahulasan = 0
-
+            # Input data umum toko ke DB
             try:
-                cursor.execute(
-                    "INSERT INTO dbo.ecommercetrends_shopeetaswanita([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
-                    toko, jumlahterjual, jumlahulasan, harga, nama, urlproduk, asaltoko)
-                conn.commit()
-            except Exception as exc:
-                print('DB Error Jumlah Ulasan : ' + exc.__str__())
+                cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_shopeesepatupria WHERE toko=? and url=?",
+                               toko, urlproduk)
+                cektoko = cursor.fetchall()
+                cektoko = cektoko[0][0]
 
+                # Cek jika informasi toko sebelumnya di db jika ada update data saja
+                if cektoko != 0:
+                    cursor.execute(
+                        "UPDATE dbo.ecommercetrends_shopeesepatupria SET harga = ?, terjual= ?, jumlahulasan = ?, produk=?, asaltoko=? WHERE toko=? and url=?",
+                        harga, jumlahterjual, jumlahulasan, nama, asaltoko, toko, urlproduk)
+                else:
+                    cursor.execute(
+                        "INSERT INTO dbo.ecommercetrends_shopeesepatupria([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
+                        toko, jumlahterjual, jumlahulasan, harga, nama, urlproduk, asaltoko)
+                conn.commit()
+            except Exception as E:
+                print('Input DB 1 : ' + E.__str__())
             continue
 
+        # Mendapatkan data jumlah ulasan
         jumlahulasanelement = jumlahulasanelement[1].text
         jumlahulasanrplc1 = jumlahulasanelement.replace(',', '')
         jumlahulasanrplc2 = jumlahulasanrplc1.replace('RB', '00')
         jumlahulasan = int(jumlahulasanrplc2)
 
+        # Input data umum toko ke DB
         try:
-            cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_shopeetaswanita WHERE toko=? and produk=?", toko,
-                           nama)
+            cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_shopeesepatupria WHERE toko=? and url=?", toko,
+                           urlproduk)
             cektoko = cursor.fetchall()
             cektoko = cektoko[0][0]
+
+            # Cek jika informasi toko sebelumnya di db jika ada update data saja
             if cektoko != 0:
                 cursor.execute(
-                    "UPDATE dbo.ecommercetrends_shopeetaswanita SET harga = ?, terjual= ?, jumlahulasan = ?, url=?, asaltoko=? WHERE toko=? and produk=?",
-                    harga, jumlahterjual, jumlahulasan, urlproduk, asaltoko, toko, nama)
+                    "UPDATE dbo.ecommercetrends_shopeesepatupria SET harga = ?, terjual= ?, jumlahulasan = ?, produk=?, asaltoko=? WHERE toko=? and url=?",
+                    harga, jumlahterjual, jumlahulasan, nama, asaltoko, toko, urlproduk)
             else:
                 cursor.execute(
-                    "INSERT INTO dbo.ecommercetrends_shopeetaswanita([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
+                    "INSERT INTO dbo.ecommercetrends_shopeesepatupria([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
                     toko, jumlahterjual, jumlahulasan, harga, nama, urlproduk, asaltoko)
             conn.commit()
         except Exception as E:
             print('Input DB 1 : ' + E.__str__())
             continue
 
-        bottomscroll = produkdriver.find_element_by_class_name('_2u0jt9')
-        actions = ActionChains(produkdriver)
-        actions.move_to_element(bottomscroll).perform()
-        time.sleep(2)
+        # Page harus discroll kebawah agar data ulasan muncul
+        status = 1
+        while status == 1:
+            try:
+                bottomscroll = produkdriver.find_element_by_class_name('_2u0jt9')
+                actions = ActionChains(produkdriver)
+                actions.move_to_element(bottomscroll).perform()
+                time.sleep(2)
+                status = 0
+            except Exception as e:
+                print(e)
+                urlproduk = i.get('url')
+                produkdriver.get(urlproduk)
+                time.sleep(2)
 
         produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
-
         ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
 
+        # Mengambil data ulasan sebelumnya untuk mencegah duplikat ulasan yang sama
         try:
             SQL_Query = pd.read_sql_query(
-                "SELECT CONCAT_WS(',', nama, variasi, rating, tanggal, review) as data FROM dbo.ecommercetrends_shopeetaswanitaulasan WHERE toko='%s' and produk='%s'" % (
-                    toko, nama), conn)
+                "SELECT CONCAT_WS(',', nama, variasi, rating, tanggal, review) as data FROM dbo.ecommercetrends_shopeesepatupriaulasan WHERE toko='%s' and url='%s'" % (
+                    toko, urlproduk), conn)
 
             datasebelumnya = pd.DataFrame(SQL_Query)
             datasebelumnya = datasebelumnya['data'].to_list()
         except Exception as Exc:
             print('Latest Date' + Exc.__str__())
+            continue
 
 
         def getdataulasan(data):
+            # Membuka koneksi
+            conn = pyodbc.connect(
+                'DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
+                '=ecommerceta;UID=knight;PWD=Arief-1305')
+            cursor = conn.cursor()
+
             namapengulas = ''
             for s in data:
                 namapengulas = s.find('div', class_='shopee-product-rating__author-name').text
@@ -199,44 +264,83 @@ for a in range(0, 100):
 
                 datatemp = namapengulas + "," + variasi + "," + rating.__str__() + "," + tanggalstr + "," + review
 
-                # input ke db
+                # Cek jika ulasan yang sama sudah ada, jika tidak input ke DB
                 if datatemp not in datasebelumnya:
                     try:
                         cursor.execute(
-                            "INSERT INTO dbo.ecommercetrends_shopeetaswanitaulasan([nama],[variasi],[rating],[tanggal],[toko],[produk],[review]) values (?,?,?,?,?,?,?)",
-                            namapengulas, variasi, rating, tanggal, toko, nama, review)
-                        print(namapengulas, rating, variasi, review, tanggal)
+                            "INSERT INTO dbo.ecommercetrends_shopeesepatupriaulasan([nama],[variasi],[rating],[tanggal],[toko],[produk],[review],[url]) values (?,?,?,?,?,?,?,?)",
+                            namapengulas, variasi, rating, tanggal, toko, nama, review, urlproduk)
+                        print(datatemp)
                     except Exception as Exc:
                         print('Fail Insert Review :' + Exc.__str__())
 
             conn.commit()
             return namapengulas
 
+        # Mengambil nama pengulas terakhir buat dibandingkan dengan page ulasan selanjutnya
+        status = 1
+        while status == 1:
+            try:
+                namatemp = ulasan[ulasan.__len__() - 1].find('div', class_='shopee-product-rating__author-name').text
+                status = 0
+            except Exception as E:
+                print(E)
+                time.sleep(2)
+                produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+                ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
 
-        try:
-            namatemp = ulasan[ulasan.__len__() - 1].find('div', class_='shopee-product-rating__author-name').text
-        except Exception as e:
-            print('Pengulas Terakhir : ' + e.__str__())
-            continue
         namapengulas = ''
 
+        print(urlproduk)
+
+        # Jika sama berarti nama pengulas tersebut adalah pengulas terakhir
         while namatemp != namapengulas:
-            try:
-                produkdriver.find_element_by_class_name('shopee-icon-button--right').click()
-            except Exception as E:
-                print('Elemen Button : ' + E.__str__())
-                continue
+
             namapengulas = getdataulasan(ulasan)
+
+            status = 1
+            while status == 1:
+                try:
+                    produkdriver.find_element_by_class_name('shopee-icon-button--right').click()
+                    status = 0
+                except Exception as e:
+                    print(e)
+                    time.sleep(2)
+                    produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+                    ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
+
             time.sleep(2)
             produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
             ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
-            try:
-                namatemp = ulasan[ulasan.__len__() - 1].find('div', class_='shopee-product-rating__author-name').text
-            except Exception as e:
-                print('Pengulas Terakhir : ' + e.__str__())
-                continue
 
-cursor.close()
-conn.close()
+            status = 1
+            stattemp = 0
+            while status == 1:
+                try:
+                    namatemp = ulasan[ulasan.__len__() - 1].find('div', class_='shopee-product-rating__author-name').text
+                    status = 0
+                    stattemp = stattemp + 1
+                except Exception as E:
+                    print(E)
+                    time.sleep(2)
+                    produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+                    ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
+
+                    if stattemp == 3:
+                        try:
+                            produkdriver.find_element_by_class_name('shopee-icon-button--left').click()
+                            time.sleep(2)
+                            produkdriver.find_element_by_class_name('shopee-icon-button--right').click()
+                            time.sleep(2)
+                            status2 = 0
+                        except Exception as e:
+                            print(e)
+                            time.sleep(2)
+                            produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+                            ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
+                        stattemp = 0
+
+        cursor.close()
+        conn.close()
+
 produkdriver.close()
-driver.close()
