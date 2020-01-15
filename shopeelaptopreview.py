@@ -9,7 +9,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import pyodbc
 
 chrome_options = Options()
-chrome_options.add_argument('--headless')
+# chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument("user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
                             "Chrome/77.0.3865.90 Safari/537.36")
@@ -30,14 +30,13 @@ chrome_options.add_argument('cookie: _gcl_au=1.1.1823793498.1570803319; _fbp=fb.
                             'SPC_T_ID="zIQZlbAQ/rPOVv5hOdZRkRiAyc/ivMhK8cdMTwuy4NCfkIZICbCMeA4qXe5kDtB4TlK5ncnZ+D6'
                             '+SB6LBkaIE31yD6tFulQEpUEnZeemjHE="')
 
-driver = webdriver.Chrome(executable_path='/home/ubuntu/chromedriver', chrome_options=chrome_options)
+# driver = webdriver.Chrome(executable_path='/home/ubuntu/chromedriver', chrome_options=chrome_options)
+driver = webdriver.Chrome(executable_path='/root/PycharmProjects/scrapper/chromedriver', chrome_options=chrome_options)
 
-conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
-                      '=ecommerceta;UID=knight;PWD=Arief-1305')
-cursor = conn.cursor()
+dataakhir = []
 
 for a in range(0, 100):
-    url = 'https://shopee.co.id/Laptop-cat.134.1367?page=' + a.__str__() + '&sortBy=pop'
+    url = 'https://shopee.co.id/Makanan-Minuman-cat.157?page=' + a.__str__() + '&sortBy=pop'
     driver.get(url)
     time.sleep(2)
 
@@ -67,14 +66,7 @@ for a in range(0, 100):
 
         print(nama)
 
-        try:
-            cursor.execute("INSERT INTO dbo.ecommercetrends_reviewname2([produk]) values (?)", nama)
-        except Exception as Exc:
-            print('Fail Insert Review :' + Exc.__str__())
-            continue
+        dataakhir.append(nama)
 
-        conn.commit()
 
-cursor.close()
-conn.close()
 driver.close()

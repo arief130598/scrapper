@@ -1,19 +1,30 @@
+import json
+
 from bs4 import BeautifulSoup
 import requests
 
 headers = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept-Language": "en-US,en;q=0.9,id-ID;q=0.8,id;q=0.7",
-    "Cookie": "ad-id=A_8vZYnuQU0Bj-9RaUTT1nI; ad-privacy=0",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36"}
+    "accept": "*/*",
+    "accept-encoding": "gzip, deflate, br",
+    "accept-language": "en-US,en;q=0.9,id-ID;q=0.8,id;q=0.7",
+    "cookie": '_gcl_au=1.1.1823793498.1570803319; _fbp=fb.2.1570803319229.963816320; SPC_IA=-1; '
+              'SPC_F=lzdTdFn9lDaLVnKWRnboUIDX4Fk7ojc1; REC_T_ID=9494fbe0-ec31-11e9-a888-b496914fea38; '
+              '_gcl_aw=GCL.1572880920.Cj0KCQiAtf_tBRDtARIsAIbAKe12O8hCcDKowKHsotaObvhR-1pGcw_K1PaJqoWsyYytuXUVV'
+              '-KtSjkaAposEALw_wcB; _ga=GA1.3.1049602029.1572880972; '
+              '_gac_UA-61904553-8=1.1572880996.Cj0KCQiAtf_tBRDtARIsAIbAKe12O8hCcDKowKHsotaObvhR'
+              '-1pGcw_K1PaJqoWsyYytuXUVV-KtSjkaAposEALw_wcB; cto_lwid=a20d9c0d-fb1b-4071-a893-7816fb16b75c; SPC_EC=-; '
+              'SPC_U=-; csrftoken=Ec3x5ybfXSLam3qf8WbmEU7OWrSxlUz1; welcomePkgShown=true; '
+              'SPC_SI=3c5gm5q4f342d6jdvo1jewe18azzha5q; _gid=GA1.3.2126539921.1578298224; REC_MD_20=1578302628; '
+              'REC_MD_30_2000613063=1578303051; AMP_TOKEN=%24NOT_FOUND; SPC_T_IV="wp7Fs4/R33Uoq3AA5hIweg=="; '
+              'SPC_T_ID="8gmGJxb0q5Zwsv3w0bwpVBmyI+Ts+eI0y55q1ESSpizGKuI8Tb1mppP7UhAHy/odU2QDYmF72xLlY/SFAPF8xm6gCjz'
+              '+prZ9KUxLLtTRSbg="',
+    "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 "
+                  "Safari/537.36"}
 
-url = "https://www.amazon.com/s?i=fashion-mens-intl-ship&bbn=16225019011&rh=n%3A16225019011%2Cn%3A679255011&dc&page" \
-      "=399&pf_rd_i=16225019011&pf_rd_m=ATVPDKIKX0DER&pf_rd_p=554625a3-8de1-4fdc-8877-99874d353388&pf_rd_r" \
-      "=VGB06NBK532H1PB1MDWA&pf_rd_s=merchandised-search-4&pf_rd_t=101&qid=1575282332&ref=sr_pg_1 "
+url = "https://shopee.co.id/api/v2/search_items/?by=pop&limit=50&match_id=35&newest=0&order=desc&page_type=search&version=2"
 
 homesource = requests.get(url, headers=headers).text
-home = BeautifulSoup(homesource, "lxml")
+home = json.loads(homesource)
 
 nexturl = home.find('li', class_='a-last').a['href']
 

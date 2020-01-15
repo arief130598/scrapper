@@ -38,6 +38,8 @@ chrome_options.add_argument('cookie: _gcl_au=1.1.1823793498.1570803319; _fbp=fb.
 
 # Menjalankan driver
 produkdriver = webdriver.Chrome(executable_path='/home/ubuntu/chromedriver', chrome_options=chrome_options)
+# produkdriver = webdriver.Chrome(executable_path='/root/PycharmProjects/scrapper/chromedriver', chrome_options=chrome_options)
+ecommerce = 'Shopee'
 
 # Mengulang sebanyak 100 kali, karna maximum page yang dapat di load di Shopee cuma 100
 for a in range(0, 100):
@@ -75,14 +77,15 @@ for a in range(0, 100):
     # Membaca setiap produk
     for i in listproduk:
         # Membuka koneksi database
-        conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
-                              '=ecommerceta;UID=knight;PWD=Arief-1305')
+        conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceanalysis.database.windows.net;DATABASE'
+                              '=ecommerceanalysis;UID=knight;PWD=Arief-1305')
         cursor = conn.cursor()
 
         # Mendapatkan nama produk sekaligus preprocessing
         namatemp = i.get('name')
         namatemp = namatemp.__str__().lower()  # Membuat string menjadi huruf pendek
-        namatemp = namatemp.translate(str.maketrans("", "", string.punctuation))  # Menghapus punctuation
+        namatemp = namatemp.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))  # Menghapus punctuation
+        namatemp = re.sub(r'\b[0-9]+\b\s*', '', namatemp)  # Menghapus kata yang cuma angka
         namatemp = re.sub(' +', ' ', namatemp)  # Spasi yang berlebihan akibat punctuation menjadi 1 saja
         namatemp = unidecode.unidecode(namatemp)  # Normalisasi huruf unicode
 
@@ -95,6 +98,7 @@ for a in range(0, 100):
         # Menghapus kata yang ada dalam dictionary
         nama = ' '.join(unique_list(namatemp.split()))
         word = pd.read_csv('/home/ubuntu/shopeeshoesman.csv', encoding='cp1252', names=["words"])
+        # word = pd.read_csv('/root/PycharmProjects/scrapper/shopeeshoesman.csv', encoding='cp1252', names=["words"])
         word_replace = word['words'].values.tolist()
         wordtest = nama.split()
 
@@ -105,7 +109,7 @@ for a in range(0, 100):
         nama = re.sub(' +', ' ', nama)
         nama = nama.strip()
 
-        # Jika nama hasil preprocess dictionary terhapus semau maka lanjut produk selanjutnya
+        # Jika nama hasil preprocess dictionary terhapus semua maka lanjut produk selanjutnya
         if nama.__len__() <= 2:
             continue
 
@@ -129,7 +133,7 @@ for a in range(0, 100):
         while kategori.__len__() == 0:
             produkdriver.get(urlproduk)
             time.sleep(2)
-
+            print('Kategori not found')
             produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
             kategori = produkpage.findAll('a', class_='JFOy4z')
 
@@ -137,7 +141,13 @@ for a in range(0, 100):
         if kategori[1].text != 'Sepatu Pria' or kategori[2].text == 'Aksesoris & Perawatan Sepatu' or kategori[2].text == 'Sandal':
             continue
 
+        if kategori[2].text is not None:
+            kategori = kategori[1].text + ' - ' + kategori[2].text
+        else:
+            kategori = kategori[1].text
+
         toko = produkpage.find('div', class_='_3Lybjn').text  # Mendapatkan nama toko
+        urltoko = produkpage.find('a', class_='_136nGn')['href']  # Mendapatkan url toko
 
         # Mendapatkan asal toko
         asaltokoelement = produkpage.findAll('div', class_='kIo6pj')
@@ -162,20 +172,33 @@ for a in range(0, 100):
             jumlahulasan = 0
             # Input data umum toko ke DB
             try:
-                cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_shopeesepatupria WHERE toko=? and url=?",
-                               toko, urlproduk)
+                cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_toko WHERE urltoko=?", urltoko)
                 cektoko = cursor.fetchall()
                 cektoko = cektoko[0][0]
 
                 # Cek jika informasi toko sebelumnya di db jika ada update data saja
                 if cektoko != 0:
                     cursor.execute(
-                        "UPDATE dbo.ecommercetrends_shopeesepatupria SET harga = ?, terjual= ?, jumlahulasan = ?, produk=?, asaltoko=? WHERE toko=? and url=?",
-                        harga, jumlahterjual, jumlahulasan, nama, asaltoko, toko, urlproduk)
+                        "UPDATE dbo.ecommercetrends_toko SET nama_toko = ?, alamat= ?, ecommerce=? WHERE urltoko=?",
+                        toko, asaltoko, ecommerce, urltoko)
                 else:
                     cursor.execute(
-                        "INSERT INTO dbo.ecommercetrends_shopeesepatupria([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
-                        toko, jumlahterjual, jumlahulasan, harga, nama, urlproduk, asaltoko)
+                        "INSERT INTO dbo.ecommercetrends_toko([urltoko],[nama_toko],[alamat],[ecommerce]) values (?,?,?,?)",
+                        urltoko, toko, asaltoko, ecommerce)
+
+                cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_produk WHERE urlproduk=?", urlproduk)
+                cekproduk = cursor.fetchall()
+                cekproduk = cekproduk[0][0]
+
+                # Cek jika informasi produk sebelumnya di db jika ada update data saja
+                if cekproduk != 0:
+                    cursor.execute(
+                        "UPDATE dbo.ecommercetrends_produk SET nama_produk = ?, jumlah_terjual= ?, jumlah_ulasan=?, kategori=? WHERE urlproduk=?",
+                        nama, jumlahterjual, jumlahulasan, kategori, urlproduk)
+                else:
+                    cursor.execute(
+                        "INSERT INTO dbo.ecommercetrends_produk([urlproduk],[nama_produk],[jumlah_terjual],[jumlah_ulasan],[kategori],[toko_id]) values (?,?,?,?,?,?)",
+                        urlproduk, nama, jumlahterjual, jumlahulasan, kategori, urltoko)
                 conn.commit()
             except Exception as E:
                 print('Input DB 1 : ' + E.__str__())
@@ -189,20 +212,33 @@ for a in range(0, 100):
 
         # Input data umum toko ke DB
         try:
-            cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_shopeesepatupria WHERE toko=? and url=?", toko,
-                           urlproduk)
+            cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_toko WHERE urltoko=?", urltoko)
             cektoko = cursor.fetchall()
             cektoko = cektoko[0][0]
 
             # Cek jika informasi toko sebelumnya di db jika ada update data saja
             if cektoko != 0:
                 cursor.execute(
-                    "UPDATE dbo.ecommercetrends_shopeesepatupria SET harga = ?, terjual= ?, jumlahulasan = ?, produk=?, asaltoko=? WHERE toko=? and url=?",
-                    harga, jumlahterjual, jumlahulasan, nama, asaltoko, toko, urlproduk)
+                    "UPDATE dbo.ecommercetrends_toko SET nama_toko = ?, alamat= ?, ecommerce=? WHERE urltoko=?",
+                    toko, asaltoko, ecommerce, urltoko)
             else:
                 cursor.execute(
-                    "INSERT INTO dbo.ecommercetrends_shopeesepatupria([toko],[terjual],[jumlahulasan],[harga],[produk],[url],[asaltoko]) values (?,?,?,?,?,?,?)",
-                    toko, jumlahterjual, jumlahulasan, harga, nama, urlproduk, asaltoko)
+                    "INSERT INTO dbo.ecommercetrends_toko([urltoko],[nama_toko],[alamat],[ecommerce]) values (?,?,?,?)",
+                    urltoko, toko, asaltoko, ecommerce)
+
+            cursor.execute("SELECT COUNT(1) FROM dbo.ecommercetrends_produk WHERE urlproduk=?", urlproduk)
+            cekproduk = cursor.fetchall()
+            cekproduk = cekproduk[0][0]
+
+            # Cek jika informasi produk sebelumnya di db jika ada update data saja
+            if cekproduk != 0:
+                cursor.execute(
+                    "UPDATE dbo.ecommercetrends_produk SET nama_produk = ?, jumlah_terjual= ?, jumlah_ulasan=?, kategori=? WHERE urlproduk=?",
+                    nama, jumlahterjual, jumlahulasan, kategori, urlproduk)
+            else:
+                cursor.execute(
+                    "INSERT INTO dbo.ecommercetrends_produk([urlproduk],[nama_produk],[jumlah_terjual],[jumlah_ulasan],[kategori],[toko_id]) values (?,?,?,?,?,?)",
+                    urlproduk, nama, jumlahterjual, jumlahulasan, kategori, urltoko)
             conn.commit()
         except Exception as E:
             print('Input DB 1 : ' + E.__str__())
@@ -229,8 +265,7 @@ for a in range(0, 100):
         # Mengambil data ulasan sebelumnya untuk mencegah duplikat ulasan yang sama
         try:
             SQL_Query = pd.read_sql_query(
-                "SELECT CONCAT_WS(',', nama, variasi, rating, tanggal, review) as data FROM dbo.ecommercetrends_shopeesepatupriaulasan WHERE toko='%s' and url='%s'" % (
-                    toko, urlproduk), conn)
+                "SELECT CONCAT_WS(',', nama_pengulas, variasi, rating, tanggal, ulasan) as data FROM dbo.ecommercetrends_ulasan WHERE produk_id='%s'" % (urlproduk), conn)
 
             datasebelumnya = pd.DataFrame(SQL_Query)
             datasebelumnya = datasebelumnya['data'].to_list()
@@ -239,11 +274,17 @@ for a in range(0, 100):
             continue
 
 
+        def xstr(s):
+            if s is None:
+                return ''
+            return str(s)
+
+
         def getdataulasan(data):
             # Membuka koneksi
             conn = pyodbc.connect(
-                'DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
-                '=ecommerceta;UID=knight;PWD=Arief-1305')
+                'DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceanalysis.database.windows.net;DATABASE'
+                '=ecommerceanalysis;UID=knight;PWD=Arief-1305')
             cursor = conn.cursor()
 
             namapengulas = ''
@@ -253,8 +294,7 @@ for a in range(0, 100):
                 rating = ratingelement.__len__()
                 review = s.find('div', class_='shopee-product-rating__content').text
                 tanggalstr = s.find('div', class_='shopee-product-rating__time').text
-                tanggalstr = tanggalstr.split()[0]
-                tanggal = datetime.datetime.strptime(tanggalstr, '%Y-%m-%d')
+                tanggal = datetime.datetime.strptime(tanggalstr, '%Y-%m-%d %H:%M')
 
                 try:
                     variasi = s.find('span', class_='shopee-product-rating__variation').text
@@ -262,14 +302,14 @@ for a in range(0, 100):
                     print('Variasi : ' + Exc.__str__())
                     variasi = None
 
-                datatemp = namapengulas + "," + variasi + "," + rating.__str__() + "," + tanggalstr + "," + review
+                datatemp = xstr(namapengulas) + "," + xstr(variasi) + "," + xstr(rating) + "," + xstr(tanggalstr + ':00.0000000') + "," + xstr(review)
 
                 # Cek jika ulasan yang sama sudah ada, jika tidak input ke DB
                 if datatemp not in datasebelumnya:
                     try:
                         cursor.execute(
-                            "INSERT INTO dbo.ecommercetrends_shopeesepatupriaulasan([nama],[variasi],[rating],[tanggal],[toko],[produk],[review],[url]) values (?,?,?,?,?,?,?,?)",
-                            namapengulas, variasi, rating, tanggal, toko, nama, review, urlproduk)
+                            "INSERT INTO dbo.ecommercetrends_ulasan([nama_pengulas],[variasi],[rating],[tanggal],[ulasan],[produk_id]) values (?,?,?,?,?,?)",
+                            namapengulas, variasi, rating, tanggal, review, urlproduk)
                         print(datatemp)
                     except Exception as Exc:
                         print('Fail Insert Review :' + Exc.__str__())
@@ -290,7 +330,7 @@ for a in range(0, 100):
                 ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
 
         namapengulas = ''
-
+        nextproduk = 0
         print(urlproduk)
 
         # Jika sama berarti nama pengulas tersebut adalah pengulas terakhir
@@ -314,31 +354,64 @@ for a in range(0, 100):
             ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
 
             status = 1
-            stattemp = 0
+            errorindex = 0
             while status == 1:
                 try:
                     namatemp = ulasan[ulasan.__len__() - 1].find('div', class_='shopee-product-rating__author-name').text
                     status = 0
-                    stattemp = stattemp + 1
                 except Exception as E:
                     print(E)
+                    produkdriver.find_element_by_class_name('shopee-icon-button--left').click()
+                    time.sleep(2)
+                    produkdriver.find_element_by_class_name('shopee-icon-button--right').click()
                     time.sleep(2)
                     produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
                     ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
+                    errorindex = errorindex + 1
 
-                    if stattemp == 3:
+                    #Jika sudah error 15 kali reload
+                    if errorindex == 15:
+                        produkdriver.get(urlproduk)
+                        time.sleep(2)
+
+                        # Page harus discroll kebawah agar data ulasan muncul
+                        statusnext = 1
+                        while statusnext == 1:
+                            try:
+                                bottomscroll = produkdriver.find_element_by_class_name('_2u0jt9')
+                                actions = ActionChains(produkdriver)
+                                actions.move_to_element(bottomscroll).perform()
+                                time.sleep(2)
+                                statusnext = 0
+                            except Exception as e:
+                                print(e)
+                                urlproduk = i.get('url')
+                                produkdriver.get(urlproduk)
+                                time.sleep(2)
+
+                        produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
+                        ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
+
+                        # Mengambil data ulasan sebelumnya untuk mencegah duplikat ulasan yang sama
                         try:
-                            produkdriver.find_element_by_class_name('shopee-icon-button--left').click()
-                            time.sleep(2)
-                            produkdriver.find_element_by_class_name('shopee-icon-button--right').click()
-                            time.sleep(2)
-                            status2 = 0
-                        except Exception as e:
-                            print(e)
-                            time.sleep(2)
-                            produkpage = BeautifulSoup(produkdriver.page_source, "lxml")
-                            ulasan = produkpage.findAll('div', class_='shopee-product-rating__main')
-                        stattemp = 0
+                            SQL_Query = pd.read_sql_query(
+                                "SELECT CONCAT_WS(',', nama_pengulas, variasi, rating, tanggal, ulasan) as data FROM dbo.ecommercetrends_ulasan WHERE produk_id='%s'" % (
+                                    urlproduk), conn)
+
+                            datasebelumnya = pd.DataFrame(SQL_Query)
+                            datasebelumnya = datasebelumnya['data'].to_list()
+                        except Exception as Exc:
+                            print('Latest Date' + Exc.__str__())
+                            continue
+                        namapengulas = ''
+
+                    elif errorindex > 25:
+                        status = 0
+                        nextproduk = 1
+                        break
+
+            if nextproduk == 1:
+                break
 
         cursor.close()
         conn.close()

@@ -7,9 +7,13 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 import pyodbc
+import string
+import re
+import unidecode
+import pandas as pd
 
 chrome_options = Options()
-chrome_options.add_argument('--headless')
+# chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument("user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
                             "Chrome/77.0.3865.90 Safari/537.36")
@@ -30,10 +34,9 @@ chrome_options.add_argument('cookie: _gcl_au=1.1.1823793498.1570803319; _fbp=fb.
                             'SPC_T_ID="zIQZlbAQ/rPOVv5hOdZRkRiAyc/ivMhK8cdMTwuy4NCfkIZICbCMeA4qXe5kDtB4TlK5ncnZ+D6'
                             '+SB6LBkaIE31yD6tFulQEpUEnZeemjHE="')
 
-driver = webdriver.Chrome(executable_path='/home/ubuntu/chromedriver', chrome_options=chrome_options)
-conn = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=ecommerceta.database.windows.net;DATABASE'
-                      '=ecommerceta;UID=knight;PWD=Arief-1305')
-cursor = conn.cursor()
+driver = webdriver.Chrome(executable_path='/root/PycharmProjects/scrapper/chromedriver', chrome_options=chrome_options)
+
+dataakhir = []
 
 for a in range(0, 100):
     url = 'https://shopee.co.id/Makanan-Minuman-cat.157?page=' + a.__str__() + '&sortBy=pop'
@@ -65,16 +68,37 @@ for a in range(0, 100):
     for i in listproduk:
         nama = i.get('name')
 
-        print(nama)
+        namatemp = nama
 
-        try:
-            cursor.execute("INSERT INTO dbo.ecommercetrends_reviewname([produk]) values (?)", nama)
-        except Exception as Exc:
-            print('Fail Insert Review :' + Exc.__str__())
-            continue
+        namatemp = namatemp.__str__().lower()  # Membuat string menjadi huruf pendek
+        namatemp = namatemp.translate(
+            str.maketrans(string.punctuation, ' ' * len(string.punctuation)))  # Menghapus punctuation
+        namatemp = re.sub(r'\b[0-9]+\b\s*', '', namatemp)  # Menghapus kata yang cuma angka
+        namatemp = re.sub(r'\w*\d\w*', '', namatemp).strip()  # Menghapus angka dalam kata
+        namatemp = re.sub(' +', ' ', namatemp)  # Spasi yang berlebihan akibat punctuation menjadi 1 saja
+        namatemp = unidecode.unidecode(namatemp)  # Normalisasi huruf unicode
 
-        conn.commit()
 
-cursor.close()
-conn.close()
+        # remove duplicate
+        def unique_list(l):
+            ulist = []
+            [ulist.append(v) for v in l if v not in ulist]
+            return ulist
+
+
+        # Menghapus kata yang ada dalam dictionary
+        nama = ' '.join(unique_list(namatemp.split()))
+        word = pd.read_csv('/root/PycharmProjects/scrapper/shopeemakanan.csv', encoding='cp1252', names=["words"])
+        word_replace = word['words'].values.tolist()
+        wordtest = nama.split()
+
+        for z in wordtest:
+            if z in word_replace:
+                nama = nama.replace(z, '')
+
+        nama = re.sub(' +', ' ', nama)
+        nama = nama.strip()
+        dataakhir.append(nama)
+        datamakanan = pd.DataFrame(data=dataakhir)
+
 driver.close()
